@@ -14,3 +14,13 @@ bower_components
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Local databases and generated test/build artifacts
+seng_db/
+database.db
+.env.*
+!.env.example
+coverage/
+test-results/
+playwright-report/
+.railway/

@@ -1,30 +1,21 @@
-# Use official Node.js image
-FROM node:18
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
-# Install Java (Required for xsd-schema-validator)
-RUN apt-get update && apt-get install -y default-jre default-jdk && rm -rf /var/lib/apt/lists/*
-
-# Set environment variables for Java
-ENV JAVA_HOME=/usr/lib/jvm/default-java
-ENV PATH=$JAVA_HOME/bin:$PATH
-
-# Set working directory to /app
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless ca-certificates && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production
 WORKDIR /app
-
-# Copy package.json and package-lock.json first for caching
-COPY package.json package-lock.json ./
-
-# Install dependencies
-RUN npm install --omit=dev --verbose || npm install --verbose
-
-# Copy the entire project into the container
-COPY . .
-
-# Set the working directory to /app/src
-WORKDIR /app/src
-
-# Expose the application port
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY migrations/ ./migrations/
+COPY schemas/ ./schemas/
+COPY --from=frontend /app/frontend/dist ./frontend/dist
+USER node
 EXPOSE 3000
-
-# Start the application
-CMD ["node", "server.js"]
+CMD ["node", "src/server.js"]

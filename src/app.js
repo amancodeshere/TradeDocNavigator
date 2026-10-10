@@ -1,267 +1,237 @@
-import express from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
-import bodyParser from 'body-parser';
-import swaggerUi from "swagger-ui-express";
+import express from "express";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { db } from "./connect.js";
+import { asyncRoute, HttpError } from "./services/errors.js";
+import { register, login, authenticate, logout } from "./services/auth.js";
 import {
-    adminRegister,
-    adminLogin, adminLogout
-} from './admin.js';
+  createInvoice,
+  listInvoices,
+  getInvoice,
+  updateInvoice,
+} from "./services/invoices.js";
+import { invoiceXML, despatchXML, validateInvoiceXML } from "./services/xml.js";
 import {
-    invoiceToXml,
-    viewInvoice,
-    validateInvoice,
-    listInvoices,
-    v1viewInvoice,
-    v1invoiceToXml,
-    v1listInvoices,
-    v1handlePostInvoice,
-    updateInvoice, handleListInvoices
-} from './invoice.js';
-import { getUserBySessionId } from "./UsersToDB.js";
-import { handlePostInvoice } from './invoice.js';
-import { healthCheck } from './health.js';
-import {syncShipment} from "./trackship.js";
+  createDespatch,
+  listDespatches,
+  getDespatch,
+  deleteDespatch,
+  restoreDespatch,
+} from "./services/despatches.js";
+import {
+  addShipment,
+  listShipments,
+  syncShipment,
+  registerWithCarrier,
+} from "./services/tracking.js";
 
 export const app = express();
-
-app.use(express.json()); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
-app.use(bodyParser.text({ type: 'application/xml' })); // Handle XML
-
-// Middleware to access the JSON body of requests
-app.use(bodyParser.urlencoded({ extended: true }));
-// Middleware to allow access from other domains
-app.use(cors());
-// Middleware for logging errors
-app.use(morgan('dev'));
-
-// ===========================================================================
-// ============================= ROUTES BELOW ================================
-// ===========================================================================
-
-// Health check route
-app.get('/api/health', (req, res) => {
-    healthCheck(req, res);
-});
-
-// register a new user
-app.post('/api/v1/admin/register', (req, res) => {
-    const { companyName, email, password } = req.body;
-  
-    adminRegister(email, password, companyName, (err, result) => {
-        if (err) {
-            return res.status(400).json({ error: err.message });
-        }
-
-        res.status(200).json(result);
-    });
-});
-
-// login an existing user
-app.post('/api/v1/admin/login', (req, res) => {
-    const { email, password } = req.body;
-  
-    adminLogin(email, password, (err, result) => {
-        if (err) {
-            return res.status(400).json({ error: err.message });
-        }
-
-        res.status(200).json(result);
-    });
-});
-
-// Logout route
-app.post('/api/v1/admin/logout', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    if (isNaN(sessionId)) {
-        return res.status(400).json({ error: "Invalid or missing session ID." });
-    }
-    adminLogout(sessionId, (err, result) => {
-        if (err) {
-            return res.status(400).json({ error: err.message });
-        }
-        return res.status(200).json(result);
-    });
-});
-
-
-// Create new invoice
-app.post('/api/v2/invoice/create', (req, res) => {
-    handlePostInvoice(req, res);
-});
-
-// view an invoice
-app.get('/api/v2/invoice/:invoiceid', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    const invoiceId = req.params.invoiceid;
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        viewInvoice(invoiceId, (err, result) => {
-            if (err) {
-                return res.status(404).json({ error: err.message });
-            }
-            res.status(200).json(result);
-        });
-    });
-});
-
-// create UBL XML invoice
-app.get('/api/v2/invoice/:invoiceid/xml', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    const invoiceId = req.params.invoiceid;
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        invoiceToXml(invoiceId, user.company, (invoiceErr, invoiceResult) => {
-            if (invoiceErr) {
-                return res.status(404).json({ error: invoiceErr.message });
-            }
-            res.status(200)
-                .set('Content-Type', 'application/xml')
-                .send(invoiceResult);
-        });
-    });
-});
-
-// update an invoice
-app.put('/api/v1/invoice/update/:id', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid, 10);
-    const invoiceId = parseInt(req.params.id, 10);
-    const { toUpdate, newData } = req.body;
-
-
-    if (!sessionId || isNaN(sessionId)) {
-        return res.status(400).json({ error: 'Invalid or missing session ID.' });
-    }
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        updateInvoice(invoiceId, toUpdate, newData, user.company, (err, result) => {
-            if (err) {
-                return res.status(400).json({ error: err.message });
-            }
-            res.status(200).json(result);
-        });
-    });
-});
-
-// validate a given XML invoice
-app.post('/api/v1/invoice/validate', (req, res) => {
-    const { invoice } = req.body;
-
-    validateInvoice(invoice, (result) => {
-        res.set("Content-Type", "application/json");
-        res.status(200).json(result);
-    });
-
-});
-
-app.get('/api/v2/invoice/list', handleListInvoices);
-
-app.post('/api/v2/shipment/sync', async (req, res) => {
-    const { trackingNumber, trackingProvider } = req.body;
-    if (!trackingNumber || !trackingProvider) {
-        return res
-          .status(400)
-          .json({ error: 'trackingNumber and trackingProvider are required' });
-    }
-
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        "script-src": ["'self'"],
+        "img-src": ["'self'", "data:"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "upgrade-insecure-requests":
+          process.env.NODE_ENV === "production" ? [] : null,
+      },
+    },
+  }),
+);
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.get("origin")) {
     try {
-        const shipmentId = await syncShipment(trackingNumber, trackingProvider);
-        return res.json({ shipmentId });
-    } catch (err) {
-        console.error('Error syncing shipment:', err.message);
-        return res
-          .status(500)
-          .json({ error: 'Failed to sync shipment' });
+      if (new URL(req.get("origin")).host !== req.get("host"))
+        throw new Error("origin");
+    } catch {
+      return res
+        .status(403)
+        .json({ error: "This request must come from the application." });
     }
+  }
+  next();
 });
-
-
-app.get('/', (req, res) => {
-    res.send('🚀 Server is running!');
+app.use(express.json({ limit: "512kb" }));
+app.use(
+  express.text({ type: ["application/xml", "text/xml"], limit: "512kb" }),
+);
+app.get(
+  "/api/health",
+  asyncRoute(async (req, res) => {
+    await db.query("SELECT 1");
+    res.json({
+      status: "success",
+      database: "connected",
+      uptime: Math.floor(process.uptime()),
+    });
+  }),
+);
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many sign-in attempts. Please try again in 15 minutes.",
+  },
 });
-
-// ===========================================================================
-// ========================== outdated v1 routes =============================
-// ===========================================================================
-
-// Create new invoice
-app.post('/api/v1/invoice/create', (req, res) => {
-    v1handlePostInvoice(req, res);
+app.post("/api/v1/admin/register", authLimiter, register);
+app.post("/api/v1/admin/login", authLimiter, login);
+app.use("/api", authenticate);
+app.get("/api/v1/admin/me", (req, res) => res.json({ user: req.user }));
+app.post("/api/v1/admin/logout", logout);
+app.get(
+  ["/api/v2/invoice/list", "/api/v2/invoices/list", "/api/v1/invoices/list"],
+  asyncRoute(async (req, res) =>
+    res.json(await listInvoices(req.user, req.query.partyNameBuyer)),
+  ),
+);
+app.post(
+  ["/api/v2/invoice/create", "/api/v1/invoice/create"],
+  asyncRoute(async (req, res) => {
+    if (
+      !req.is("application/json") &&
+      !req.is("application/xml") &&
+      !req.is("text/xml")
+    )
+      throw new HttpError(415, "Submit JSON or an XML order.");
+    res
+      .status(201)
+      .json(
+        await createInvoice(req.user, req.body, !req.is("application/json")),
+      );
+  }),
+);
+const validateLimiter = rateLimit({
+  windowMs: 60000,
+  limit: 10,
+  message: {
+    error: "Please wait a minute before validating more XML documents.",
+  },
 });
-
-// view an invoice
-app.get('/api/v1/invoice/:invoiceid', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    const invoiceId = req.params.invoiceid;
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        v1viewInvoice(invoiceId, (err, result) => {
-            if (err) {
-                return res.status(404).json({ error: err.message });
-            }
-            res.status(200).json(result);
-        });
+app.post(
+  "/api/v1/invoice/validate",
+  validateLimiter,
+  asyncRoute(async (req, res) => {
+    const result = await validateInvoiceXML(req.body.invoice);
+    res.status(result.unavailable ? 503 : 200).json(result);
+  }),
+);
+app.get(
+  ["/api/v2/invoice/:id/xml", "/api/v1/invoice/:id/xml"],
+  asyncRoute(async (req, res) => {
+    const invoice = await getInvoice(req.user, req.params.id);
+    res
+      .type("application/xml")
+      .attachment(`invoice-${invoice.invoiceId}.xml`)
+      .send(invoiceXML(invoice));
+  }),
+);
+app.get(
+  ["/api/v2/invoice/:id", "/api/v1/invoice/:id"],
+  asyncRoute(async (req, res) =>
+    res.json(await getInvoice(req.user, req.params.id)),
+  ),
+);
+app.put(
+  ["/api/v2/invoice/:id", "/api/v1/invoice/update/:id"],
+  asyncRoute(async (req, res) =>
+    res.json(await updateInvoice(req.user, req.params.id, req.body)),
+  ),
+);
+app.get(
+  "/api/v2/despatches",
+  asyncRoute(async (req, res) => res.json(await listDespatches(req.user))),
+);
+app.post(
+  "/api/v2/despatches",
+  asyncRoute(async (req, res) =>
+    res.status(201).json(await createDespatch(req.user, req.body)),
+  ),
+);
+app.get(
+  "/api/v2/despatches/:id/xml",
+  asyncRoute(async (req, res) =>
+    res
+      .type("application/xml")
+      .attachment("despatch.xml")
+      .send(despatchXML(await getDespatch(req.user, req.params.id))),
+  ),
+);
+app.get(
+  "/api/v2/despatches/:id",
+  asyncRoute(async (req, res) =>
+    res.json(await getDespatch(req.user, req.params.id)),
+  ),
+);
+app.delete(
+  "/api/v2/despatches/:id",
+  asyncRoute(async (req, res) =>
+    res.json(await deleteDespatch(req.user, req.params.id)),
+  ),
+);
+app.post(
+  "/api/v2/despatches/:id/restore",
+  asyncRoute(async (req, res) =>
+    res.json(await restoreDespatch(req.user, req.params.id)),
+  ),
+);
+app.get(
+  "/api/v2/shipments",
+  asyncRoute(async (req, res) => res.json(await listShipments(req.user))),
+);
+app.post(
+  "/api/v2/shipments",
+  asyncRoute(async (req, res) =>
+    res.status(201).json(await addShipment(req.user, req.body)),
+  ),
+);
+app.post(
+  "/api/v2/shipments/:id/sync",
+  asyncRoute(async (req, res) =>
+    res.json(await syncShipment(req.user, req.params.id)),
+  ),
+);
+app.post(
+  "/api/v2/shipments/:id/register",
+  asyncRoute(async (req, res) =>
+    res.json(await registerWithCarrier(req.user, req.params.id, req.body)),
+  ),
+);
+app.use("/api", (req, res) =>
+  res.status(404).json({ error: "API endpoint not found." }),
+);
+const dist = fileURLToPath(new URL("../frontend/dist/", import.meta.url));
+if (existsSync(`${dist}/index.html`)) {
+  app.use(express.static(dist, { index: false, maxAge: "1h" }));
+  app.get("*", (req, res) =>
+    res.set("Cache-Control", "no-cache").sendFile(`${dist}/index.html`),
+  );
+} else {
+  app.get("/", (req, res) =>
+    res
+      .type("text")
+      .send(
+        "API is running. Start Vite for development, or build the frontend to serve the application here.",
+      ),
+  );
+}
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = error.status || 500;
+  if (status >= 500) console.error("Request failed:", error.message);
+  res
+    .status(status)
+    .json({
+      error:
+        status >= 500 && !(error instanceof HttpError)
+          ? "The service could not complete this request. Please try again."
+          : error.message,
     });
 });
-
-// create UBL XML invoice
-app.get('/api/v1/invoice/:invoiceid/xml', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    const invoiceId = req.params.invoiceid;
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        v1invoiceToXml(invoiceId, user.company, (invoiceErr, invoiceResult) => {
-            if (invoiceErr) {
-                return res.status(404).json({ error: invoiceErr.message });
-            }
-            res.status(200)
-                .set('Content-Type', 'application/xml')
-                .send(invoiceResult);
-        });
-    });
-});
-
-// View an list of invoices by partyNameBuyer
-app.get('/api/v1/invoices/list', (req, res) => {
-    const sessionId = parseInt(req.headers.sessionid);
-    const partyNameBuyer = req.query.partyNameBuyer
-
-    getUserBySessionId(sessionId, (sessionErr, user) => {
-        if (sessionErr) {
-            return res.status(401).json({ error: sessionErr.message });
-        }
-
-        v1listInvoices(partyNameBuyer, (err, result) => {
-            if (err) {
-                return res.status(400).json({ error: err.message });
-            }
-            res.status(200).json(result);
-        });
-    });
-});
-
-
-// ===========================================================================
-// ============================= ROUTES ABOVE ================================
-// ===========================================================================

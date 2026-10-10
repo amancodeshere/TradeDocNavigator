@@ -1,15 +1,27 @@
-import { app } from './app.js';
+import { app } from "./app.js";
+import { db } from "./connect.js";
+import { migrate } from "../scripts/migrate.js";
 
-const PORT = process.env.PORT || 3000;  // Ensure Railway assigns this dynamically
-const HOST = '0.0.0.0';  // Must bind to all interfaces for Railway
-
-const server = app.listen(PORT, HOST, () => {
-    console.log(` Server is running on http://${HOST}:${PORT}`);
-});
-
-process.on('SIGINT', () => {
-    server.close(() => {
-        console.log(' Shutting down server gracefully.');
-        process.exit();
+try {
+  await migrate();
+  const server = app.listen(Number(process.env.PORT || 3000), "0.0.0.0", () =>
+    console.log("TradeDocs Navigator is ready."),
+  );
+  const shutdown = () => {
+    const timeout = setTimeout(() => process.exit(1), 10000).unref();
+    server.close(async () => {
+      await db.end();
+      clearTimeout(timeout);
+      process.exit(0);
     });
-});
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+} catch (error) {
+  console.error(
+    "Startup failed. Check DATABASE_URL and PostgreSQL availability:",
+    error.message,
+  );
+  await db.end();
+  process.exitCode = 1;
+}

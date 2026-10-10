@@ -1,0 +1,12 @@
+.git
+node_modules
+frontend/node_modules
+frontend/dist
+.env
+.env.*
+!.env.example
+seng_db
+database.db
+coverage
+test-results
+playwright-report
