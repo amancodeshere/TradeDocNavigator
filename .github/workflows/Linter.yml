@@ -1,28 +1,13 @@
-name: Lint Code
-
+# Lint, type checks, builds and tests are consolidated in tests.yml.
+name: Dependency audit
 on: [push, pull_request]
-
 jobs:
-  lint:
-    runs-on: macos-latest
-
+  audit:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: |
-          npm install
-          cd frontend
-          npm install
-
-      - name: Run ESLint
-        run: |
-          npm run lint
-          cd frontend
-          npm run lint
+          node-version: 22
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --prefix frontend --omit=dev --audit-level=high

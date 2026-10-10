@@ -1,0 +1,2 @@
+# Keep third-party UBL schemas byte-for-byte, including upstream whitespace.
+schemas/** -whitespace linguist-vendored
