@@ -1,197 +1,204 @@
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import { Eye, Edit, Download } from 'lucide-react'
-import "../css/InvoicesPage.css"
-import ValidateXMLForm from "../components/ValidateXMLForm"
-import CreateInvoiceForm from "../components/CreateInvoiceForm"
-
-
-export default function InvoicesPage() {
-  const [activeTab, setActiveTab] = useState("invoice-list")
-  const [buyerName, setBuyerName] = useState("")
-  const [invoices, setInvoices] = useState([])
-  const [isLoading, setIsLoading] = useState(false)
-
-  const sessionId = localStorage.getItem("token")
-  const navigate = useNavigate()
-
-  const fetchInvoices = async () => {
-    setIsLoading(true)
+import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+import { Download, Eye, Pencil } from "lucide-react";
+import {
+  request,
+  download,
+  money,
+  displayDate,
+  errorMessage,
+  type Invoice,
+} from "../lib/api";
+import CreateInvoiceForm from "../components/CreateInvoiceForm";
+import ValidateXMLForm from "../components/ValidateXMLForm";
+export default function Invoices() {
+  const [tab, setTab] = useState("list");
+  const [buyer, setBuyer] = useState("");
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const load = async (filter = "") => {
+    setBusy(true);
+    setError("");
     try {
-      const res = await fetch(
-        `/api/v2/invoices/list?partyNameBuyer=${encodeURIComponent(buyerName)}`,
-        {
-          headers: {
-            sessionid: sessionId,
-          },
-        }
-      )
-      const data = await res.json()
-      setInvoices(data.invoices || [])
-    } catch (err) {
-      console.error("Error:", err)
-      setInvoices([])
+      setInvoices(
+        (
+          await request<{ invoices: Invoice[] }>(
+            `/v2/invoice/list?partyNameBuyer=${encodeURIComponent(filter)}`,
+          )
+        ).invoices,
+      );
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
     }
-    setIsLoading(false)
-  }
-
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const filter = (event: FormEvent) => {
+    event.preventDefault();
+    void load(buyer);
+  };
+  const downloadXML = async (id: number) => {
+    try {
+      await download(`/v2/invoice/${id}/xml`, `invoice-${id}.xml`);
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  };
   return (
-    <div className="container">
-      <h1>Invoice Hub</h1>
-      
-      <div className="tabs-container">
-        <div className="tabs-list">
-          <button
-            className="tab-trigger"
-            data-state={activeTab === "invoice-list" ? "active" : "inactive"}
-            onClick={() => setActiveTab("invoice-list")}
-          >
-            Invoice List
-          </button>
-          <button
-            className="tab-trigger"
-            data-state={activeTab === "create-invoice" ? "active" : "inactive"}
-            onClick={() => setActiveTab("create-invoice")}
-          >
-            Create Invoice
-          </button>
-          <button
-            className="tab-trigger"
-            data-state={activeTab === "validate-xml" ? "active" : "inactive"}
-            onClick={() => setActiveTab("validate-xml")}
-          >
-            Validate XML
-          </button>
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>Invoice hub</h1>
+          <p>From order details to a document ready to share.</p>
         </div>
-
-        {activeTab === "invoice-list" && (
-          <div className="tab-content">
-            <div className="space-y-6">
-              <div>
-                <h2>Filter Invoices</h2>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label htmlFor="buyer-name">
-                      Buyer Party Name
-                    </label>
-                    <input
-                      id="buyer-name"
-                      className="input"
-                      placeholder="Enter buyer name to filter"
-                      value={buyerName}
-                      onChange={(e) => setBuyerName(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button onClick={fetchInvoices} className="button button-primary">
-                      Filter
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h2>Invoices</h2>
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Invoice ID</th>
-                        <th>Issue Date</th>
-                        <th>Buyer</th>
-                        <th>Amount</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {isLoading ? (
-                        <tr>
-                          <td colSpan={5} style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}>
-                              <div className="spinner"></div>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : invoices.length > 0 ? (
-                        invoices.map((invoice) => (
-                          <tr key={invoice.invoiceId}>
-                            <td>{invoice.invoiceId}</td>
-                            <td>{new Date(invoice.issueDate).toLocaleDateString()}</td>
-                            <td>{invoice.partyNameBuyer}</td>
-                            <td>{invoice.payableAmount}</td>
-                            <td>
-                              <div className="flex gap-2">
-                                <button
-                                  className="button button-outline button-icon"
-                                  onClick={() => navigate(`/invoices/${invoice.invoiceId}`)}
-                                  title="View Invoice"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
-                                <button
-                                  className="button button-outline button-icon"
-                                  onClick={() => navigate(`/invoices/${invoice.invoiceId}/edit`)}
-                                  title="Edit Invoice"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </button>
-                                <button
-                                  className="button button-outline button-icon"
-                                  onClick={() => handleDownload(invoice.invoiceId)}
-                                  title="Download XML"
-                                >
-                                  <Download className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={5} style={{ textAlign: 'center' }}>
-                            No invoices found. Try adjusting your filter or create a new invoice.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "create-invoice" && (
-          <div className="tab-content">
-            <CreateInvoiceForm setActiveTab={setActiveTab} sessionId={sessionId} />
-          </div>
-        )}
-
-        {activeTab === "validate-xml" && (
-          <div className="tab-content">
-            <ValidateXMLForm sessionId={sessionId} />
-          </div>
-        )}
       </div>
-    </div>
-  )
-
-  function handleDownload(id) {
-    fetch(`/v2/invoice/${id}/xml`, {
-      headers: {
-        sessionid: sessionId,
-      },
-    })
-      .then((res) => res.text())
-      .then((xml) => {
-        const blob = new Blob([xml], { type: "application/xml" })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `invoice-${id}.xml`
-        a.click()
-        URL.revokeObjectURL(url)
-      })
-      .catch((err) => console.error("Failed to download XML:", err))
-  }
+      <div className="tabs" aria-label="Invoice sections">
+        <button aria-pressed={tab === "list"} onClick={() => setTab("list")}>
+          Your invoices
+        </button>
+        <button
+          aria-pressed={tab === "create"}
+          onClick={() => setTab("create")}
+        >
+          Create invoice
+        </button>
+        <button
+          aria-pressed={tab === "validate"}
+          onClick={() => setTab("validate")}
+        >
+          Validate XML
+        </button>
+      </div>
+      {tab === "create" && <CreateInvoiceForm />}
+      {tab === "validate" && <ValidateXMLForm />}
+      {tab === "list" && (
+        <section>
+          <form className="filter-form" onSubmit={filter}>
+            <label htmlFor="buyer-filter">
+              Buyer name
+              <input
+                id="buyer-filter"
+                maxLength={200}
+                placeholder="Search your invoices by buyer"
+                value={buyer}
+                onChange={(event) => setBuyer(event.target.value)}
+              />
+            </label>
+            <button disabled={busy}>Search</button>
+            {buyer && (
+              <button
+                type="button"
+                className="button-outline"
+                onClick={() => {
+                  setBuyer("");
+                  void load();
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </form>
+          {error && (
+            <div className="error" role="alert">
+              <p>{error}</p>
+              <button
+                className="button-outline"
+                onClick={() => void load(buyer)}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {busy ? (
+            <p className="loading" role="status">
+              Loading invoices…
+            </p>
+          ) : !error && invoices.length === 0 ? (
+            <div className="empty-state">
+              <h2>
+                {buyer
+                  ? "No matching invoices"
+                  : "Your first invoice starts here"}
+              </h2>
+              <p>
+                {buyer
+                  ? "Try another buyer name or clear the search."
+                  : "Create an invoice from line items or paste a UBL order."}
+              </p>
+              <button onClick={() => setTab("create")}>Create invoice</button>
+            </div>
+          ) : (
+            !error && (
+              <div
+                className="table-wrap"
+                role="region"
+                aria-label="Invoices"
+                tabIndex={0}
+              >
+                <table>
+                  <caption className="sr-only">Your invoices</caption>
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Issue date</th>
+                      <th>Buyer</th>
+                      <th>Amount</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((invoice) => (
+                      <tr key={invoice.invoiceId}>
+                        <td>
+                          <Link to={`/invoices/${invoice.invoiceId}`}>
+                            #{invoice.invoiceId}
+                          </Link>
+                        </td>
+                        <td>{displayDate(invoice.issueDate)}</td>
+                        <td>{invoice.partyNameBuyer}</td>
+                        <td className="amount">
+                          {money(invoice.amount, invoice.currencyCode)}
+                        </td>
+                        <td>
+                          <div className="actions">
+                            <Link
+                              className="icon-button"
+                              aria-label={`View invoice ${invoice.invoiceId}`}
+                              to={`/invoices/${invoice.invoiceId}`}
+                            >
+                              <Eye size={18} />
+                            </Link>
+                            <Link
+                              className="icon-button"
+                              aria-label={`Edit invoice ${invoice.invoiceId}`}
+                              to={`/invoices/${invoice.invoiceId}/edit`}
+                            >
+                              <Pencil size={18} />
+                            </Link>
+                            <button
+                              className="icon-button"
+                              aria-label={`Download invoice ${invoice.invoiceId} XML`}
+                              onClick={() =>
+                                void downloadXML(invoice.invoiceId)
+                              }
+                            >
+                              <Download size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </section>
+      )}
+    </>
+  );
 }

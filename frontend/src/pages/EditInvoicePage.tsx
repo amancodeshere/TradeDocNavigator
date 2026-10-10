@@ -1,146 +1,133 @@
-import { useEffect, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Save, ArrowLeft } from "lucide-react"
-import "@/css/EditInvoicePage.css"
-
-interface Invoice {
-  invoiceId: number;
-  payableAmount: string;
-  [key: string]: any;
-}
-
-export default function EditInvoicePage() {
-  const { invoiceId } = useParams()
-  const navigate = useNavigate()
-  const [invoice, setInvoice] = useState<Invoice | null>(null)
-  const [payableAmount, setPayableAmount] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-
-  const sessionId = localStorage.getItem("token")
-
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { request, errorMessage, type Invoice } from "../lib/api";
+export default function EditInvoice() {
+  const { invoiceId } = useParams();
+  const navigate = useNavigate();
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState("");
+  const [currency, setCurrency] = useState("AUD");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   useEffect(() => {
-    const fetchInvoice = async () => {
-      if (!sessionId) {
-        navigate('/login');
-        return;
-      }
-      
-      setIsLoading(true)
-      try {
-        const res = await fetch(`/api/v2/invoice/${invoiceId}`, {
-          headers: {
-            sessionid: sessionId,
-          },
-        })
-        const data = await res.json()
-        if (res.ok) {
-          setInvoice(data)
-          setPayableAmount(data.payableAmount.replace(/[^0-9.]/g, ""))
-        } else {
-          console.error(data.error)
+    let active = true;
+    request<Invoice>(`/v2/invoice/${invoiceId}`)
+      .then((data) => {
+        if (active) {
+          setInvoice(data);
+          setAmount(String(data.amount));
+          setDate(data.issueDate);
+          setCurrency(data.currencyCode);
         }
-      } catch (err) {
-        console.error("Error fetching invoice:", err)
-      }
-      setIsLoading(false)
-    }
-
-    fetchInvoice()
-  }, [invoiceId, sessionId, navigate])
-
-  const handleSave = async () => {
-    if (!sessionId) {
-      navigate('/login');
-      return;
-    }
-    
-    setIsSaving(true)
-    try {
-      const res = await fetch(`/v1/invoice/${invoiceId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          sessionid: sessionId,
-        },
-        body: JSON.stringify({
-          toUpdate: "payableAmount",
-          newData: `$${payableAmount}`,
-        }),
       })
-
-      const data = await res.json()
-      if (res.ok) {
-        navigate(`/invoices/${invoiceId}`)
-      } else {
-        console.error(data.error)
-        alert(data.error)
-      }
-    } catch (err) {
-      console.error("Error updating invoice:", err)
-      alert("Failed to update invoice.")
+      .catch((error) => {
+        if (active) setError(errorMessage(error));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [invoiceId]);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/v2/invoice/${invoiceId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          amount: Number(amount),
+          issueDate: date,
+          currencyCode: currency,
+        }),
+      });
+      navigate(`/invoices/${invoiceId}`);
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
     }
-    setIsSaving(false)
-  }
-
-  if (isLoading) {
-    return (
-      <div className="edit-invoice-container">
-        <p>Loading invoice...</p>
-      </div>
-    )
-  }
-
-  if (!invoice) {
-    return (
-      <div className="edit-invoice-container">
-        <p>Invoice not found.</p>
-        <Button onClick={() => navigate("/invoices")}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Invoices
-        </Button>
-      </div>
-    )
-  }
-
+  };
   return (
-    <div className="edit-invoice-container">
-      <div className="edit-invoice-header">
-        <Button variant="outline" onClick={() => navigate(`/invoices/${invoiceId}`)}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back
-        </Button>
-        <h1 className="edit-invoice-title">Edit Invoice #{invoice.invoiceId}</h1>
-      </div>
-
-      <div className="edit-invoice-card">
-        <div className="input-group">
-          <label>Payable Amount</label>
-          <Input
-            type="text"
-            value={payableAmount}
-            onChange={(e) => setPayableAmount(e.target.value)}
-            placeholder="100.00"
-          />
-          <p className="input-hint">Enter numeric amount only (e.g., 130.00)</p>
-        </div>
-
-        <div className="edit-invoice-actions">
-          <Button variant="outline" onClick={() => navigate(`/invoices/${invoiceId}`)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !payableAmount}
-            className="bg-black text-white hover:bg-gray-800"
-          >
-            <Save className="mr-2 h-4 w-4" />
-            {isSaving ? "Saving..." : "Save Changes"}
-          </Button>
+    <>
+      <Link className="back-link" to={`/invoices/${invoiceId}`}>
+        Back to invoice
+      </Link>
+      <div className="page-heading">
+        <div>
+          <h1>Edit invoice #{invoiceId}</h1>
+          <p>Update the document date, currency or payable amount.</p>
         </div>
       </div>
-    </div>
-  )
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p role="status">Loading invoice…</p>
+      ) : (
+        invoice && (
+          <form className="form-section" onSubmit={(event) => void save(event)}>
+            <div className="form-grid">
+              <label htmlFor="amount">
+                Payable amount
+                <input
+                  id="amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                />
+              </label>
+              <label htmlFor="date">
+                Issue date
+                <input
+                  id="date"
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                />
+              </label>
+              <label htmlFor="currency">
+                Currency
+                <input
+                  id="currency"
+                  required
+                  pattern="[A-Za-z]{3}"
+                  maxLength={3}
+                  value={currency}
+                  onChange={(event) =>
+                    setCurrency(event.target.value.toUpperCase())
+                  }
+                />
+              </label>
+            </div>
+            <p className="hint">
+              Changing the payable amount keeps the original line items. Any
+              difference is recorded as an adjustment in the XML.
+            </p>
+            <div className="form-actions">
+              <Link
+                className="button button-outline"
+                to={`/invoices/${invoiceId}`}
+              >
+                Cancel
+              </Link>
+              <button disabled={busy}>
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        )
+      )}
+    </>
+  );
 }

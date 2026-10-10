@@ -1,319 +1,221 @@
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Plus } from 'lucide-react'
-
-interface CreateDespatchFormProps {
-  setActiveTab: (tab: string) => void
-  sessionId: string | null
-  onSuccess: () => void
-}
-
-export default function CreateDespatchForm({ setActiveTab, sessionId, onSuccess }: CreateDespatchFormProps) {
-  const [formData, setFormData] = useState({
-    orderId: "",
-    issueDate: new Date().toISOString().split("T")[0],
-    supplierName: "",
-    customerName: "",
-    deliveryAddress: "",
-    items: [{
-      itemId: "",
-      description: "",
-      quantity: "",
-      unit: "KGM"
-    }]
-  })
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState("")
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
-  }
-
-  const handleItemChange = (index: number, field: string, value: string) => {
-    const newItems = [...formData.items]
-    newItems[index] = {
-      ...newItems[index],
-      [field]: value
-    }
-    setFormData(prev => ({
-      ...prev,
-      items: newItems
-    }))
-  }
-
-  const addItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        { itemId: "", description: "", quantity: "", unit: "KGM" }
-      ]
-    }))
-  }
-
-  const removeItem = (index: number) => {
-    if (formData.items.length <= 1) return
-    const newItems = [...formData.items]
-    newItems.splice(index, 1)
-    setFormData(prev => ({
-      ...prev,
-      items: newItems
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setError("")
-
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Trash2 } from "lucide-react";
+import { request, errorMessage, today } from "../lib/api";
+import { useAuth } from "../lib/auth";
+export default function CreateDespatchForm() {
+  const { user } = useAuth();
+  const [orderId, setOrderId] = useState("");
+  const [issueDate, setIssueDate] = useState(today());
+  const [supplier, setSupplier] = useState(user?.companyName || "");
+  const [customer, setCustomer] = useState("");
+  const [address, setAddress] = useState("");
+  const [country, setCountry] = useState("AU");
+  const [items, setItems] = useState([
+    { itemId: "", description: "", quantity: "1", unit: "EA" },
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const change = (index: number, field: string, value: string) =>
+    setItems(
+      items.map((item, i) =>
+        i === index ? { ...item, [field]: value } : item,
+      ),
+    );
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
     try {
-      // Format the data to match your API requirements
-      const requestBody = {
-        Order: {
-          "@xmlns": "urn:oasis:names:specification:ubl:schema:xsd:Order-2",
-          "@xmlns:cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
-          "@xmlns:cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
-          "cbc:UBLVersionID": "2.0",
-          "cbc:CustomizationID": "urn:oasis:names:specification:ubl:xpath:Order-2.0:samples-2.0-draft",
-          "cbc:ProfileID": "bpid:urn:oasis:names:draft:bpss:ubl-2-sample-international-scenario",
-          "cbc:ID": formData.orderId,
-          "cbc:CopyIndicator": "false",
-          "cbc:UUID": crypto.randomUUID(),
-          "cbc:IssueDate": formData.issueDate,
-          "cbc:Note": "Created via portal",
-          "cac:BuyerCustomerParty": {
-            "cbc:CustomerAssignedAccountID": "CUST001",
-            "cac:Party": {
-              "cac:PartyName": {
-                "cbc:Name": formData.customerName
-              },
-              "cac:PostalAddress": {
-                "cbc:StreetName": formData.deliveryAddress.split(",")[0] || "",
-                "cbc:CityName": formData.deliveryAddress.split(",")[1] || "",
-                "cac:Country": {
-                  "cbc:IdentificationCode": "GB"
-                }
-              }
-            }
-          },
-          "cac:SellerSupplierParty": {
-            "cbc:CustomerAssignedAccountID": "SUPP001",
-            "cac:Party": {
-              "cac:PartyName": {
-                "cbc:Name": formData.supplierName
-              }
-            }
-          },
-          "cac:OrderLine": {
-            "cac:LineItem": {
-              "cbc:ID": "1",
-              "cbc:Quantity": {
-                "@unitCode": "KGM",
-                "#text": formData.items[0].quantity
-              },
-              "cac:Item": {
-                "cbc:Description": formData.items[0].description,
-                "cbc:Name": formData.items[0].itemId
-              }
-            }
-          }
-        },
-        "cac:Shipment": {
-          "cbc:ID": "1",
-          "cac:Delivery": {
-            "cac:DeliveryAddress": {
-              "cbc:StreetName": formData.deliveryAddress.split(",")[0] || "",
-              "cbc:CityName": formData.deliveryAddress.split(",")[1] || "",
-              "cac:Country": {
-                "cbc:IdentificationCode": "GB"
-              }
-            }
-          }
-        }
-      }
-
-      if (!sessionId) {
-        throw new Error("No session ID found. Please login again.");
-      }
-
-      const response = await fetch(
-        "https://t6r6w5zni9.execute-api.us-east-1.amazonaws.com/v1/despatchAdvice",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            sessionid: sessionId,
-          },
-          body: JSON.stringify(requestBody)
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error("Failed to create despatch advice")
-      }
-
-      const data = await response.json()
-      console.log("Created despatch:", data)
-      onSuccess()
-      setActiveTab("despatch-list")
-    } catch (err) {
-      console.error("Error creating despatch:", err)
-      setError(err instanceof Error ? err.message : "Failed to create despatch advice")
+      const result = await request<{ despatchId: string }>("/v2/despatches", {
+        method: "POST",
+        body: JSON.stringify({
+          orderId,
+          issueDate,
+          supplierName: supplier,
+          customerName: customer,
+          deliveryAddress: address,
+          countryCode: country,
+          items: items.map((item) => ({
+            ...item,
+            quantity: Number(item.quantity),
+          })),
+        }),
+      });
+      navigate(`/despatches/${result.despatchId}`);
+    } catch (error) {
+      setError(errorMessage(error));
     } finally {
-      setIsSubmitting(false)
+      setBusy(false);
     }
-  }
-
+  };
   return (
-    <div className="create-despatch-form">
-      <h2>Create New Despatch Advice</h2>
-      
-      {error && <div className="error-message">{error}</div>}
-
-      <form onSubmit={handleSubmit}>
-        <div className="form-section">
-          <h3>Basic Information</h3>
-          <div className="form-group">
-            <label>Order ID</label>
-            <Input
-              name="orderId"
-              value={formData.orderId}
-              onChange={handleChange}
+    <section className="form-section">
+      <h2>Prepare despatch advice</h2>
+      <p>
+        Record the items leaving your business and their delivery destination.
+      </p>
+      <form onSubmit={(event) => void submit(event)}>
+        <div className="form-grid">
+          <label htmlFor="order-ref">
+            Order reference
+            <input
+              id="order-ref"
               required
+              maxLength={200}
+              value={orderId}
+              onChange={(event) => setOrderId(event.target.value)}
             />
-          </div>
-          <div className="form-group">
-            <label>Issue Date</label>
-            <Input
+          </label>
+          <label htmlFor="despatch-date">
+            Issue date
+            <input
+              id="despatch-date"
               type="date"
-              name="issueDate"
-              value={formData.issueDate}
-              onChange={handleChange}
               required
+              value={issueDate}
+              onChange={(event) => setIssueDate(event.target.value)}
             />
-          </div>
+          </label>
+          <label htmlFor="supplier">
+            Supplier name
+            <input
+              id="supplier"
+              required
+              maxLength={200}
+              value={supplier}
+              onChange={(event) => setSupplier(event.target.value)}
+            />
+          </label>
+          <label htmlFor="customer">
+            Customer name
+            <input
+              id="customer"
+              required
+              maxLength={200}
+              value={customer}
+              onChange={(event) => setCustomer(event.target.value)}
+            />
+          </label>
+          <label htmlFor="address">
+            Delivery address
+            <input
+              id="address"
+              required
+              maxLength={1000}
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+            />
+          </label>
+          <label htmlFor="country">
+            Country code
+            <input
+              id="country"
+              required
+              pattern="[A-Za-z]{2}"
+              maxLength={2}
+              value={country}
+              onChange={(event) => setCountry(event.target.value.toUpperCase())}
+            />
+            <span className="hint">Two letters, such as AU or NZ.</span>
+          </label>
         </div>
-
-        <div className="form-section">
-          <h3>Parties</h3>
-          <div className="form-group">
-            <label>Supplier Name</label>
-            <Input
-              name="supplierName"
-              value={formData.supplierName}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>Customer Name</label>
-            <Input
-              name="customerName"
-              value={formData.customerName}
-              onChange={handleChange}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>Delivery Address</label>
-            <Input
-              name="deliveryAddress"
-              value={formData.deliveryAddress}
-              onChange={handleChange}
-              placeholder="Street, City"
-              required
-            />
-          </div>
-        </div>
-
-        <div className="form-section">
-          <h3>Items</h3>
-          {formData.items.map((item, index) => (
-            <div key={index} className="item-group">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Item ID</label>
-                  <Input
-                    value={item.itemId}
-                    onChange={(e) => handleItemChange(index, "itemId", e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Description</label>
-                  <Input
-                    value={item.description}
-                    onChange={(e) => handleItemChange(index, "description", e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Quantity</label>
-                  <Input
-                    type="number"
-                    value={item.quantity}
-                    onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Unit</label>
-                  <select
-                    value={item.unit}
-                    onChange={(e) => handleItemChange(index, "unit", e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-md"
-                  >
-                    <option value="KGM">Kilograms</option>
-                    <option value="EA">Each</option>
-                    <option value="LTR">Liters</option>
-                  </select>
-                </div>
-                {formData.items.length > 1 && (
-                  <button
-                    type="button"
-                    className="button button-danger"
-                    onClick={() => removeItem(index)}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+        <h3>Items</h3>
+        {items.map((item, index) => (
+          <fieldset className="line-item" key={index}>
+            <legend>Item {index + 1}</legend>
+            <div className="form-grid">
+              <label htmlFor={`item-${index}`}>
+                Item reference
+                <input
+                  id={`item-${index}`}
+                  required
+                  maxLength={200}
+                  value={item.itemId}
+                  onChange={(event) =>
+                    change(index, "itemId", event.target.value)
+                  }
+                />
+              </label>
+              <label htmlFor={`desc-${index}`}>
+                Description
+                <input
+                  id={`desc-${index}`}
+                  required
+                  maxLength={1000}
+                  value={item.description}
+                  onChange={(event) =>
+                    change(index, "description", event.target.value)
+                  }
+                />
+              </label>
+              <label htmlFor={`quantity-${index}`}>
+                Quantity
+                <input
+                  id={`quantity-${index}`}
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  required
+                  value={item.quantity}
+                  onChange={(event) =>
+                    change(index, "quantity", event.target.value)
+                  }
+                />
+              </label>
+              <label htmlFor={`unit-${index}`}>
+                Unit
+                <select
+                  id={`unit-${index}`}
+                  value={item.unit}
+                  onChange={(event) =>
+                    change(index, "unit", event.target.value)
+                  }
+                >
+                  <option value="EA">Each</option>
+                  <option value="KGM">Kilograms</option>
+                  <option value="LTR">Litres</option>
+                </select>
+              </label>
             </div>
-          ))}
-          <button
-            type="button"
-            className="button button-outline"
-            onClick={addItem}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Another Item
+            {items.length > 1 && (
+              <button
+                type="button"
+                className="button-outline"
+                onClick={() => setItems(items.filter((_, i) => i !== index))}
+              >
+                <Trash2 size={16} />
+                Remove item {index + 1}
+              </button>
+            )}
+          </fieldset>
+        ))}
+        <button
+          type="button"
+          className="button-outline"
+          disabled={items.length >= 100}
+          onClick={() =>
+            setItems([
+              ...items,
+              { itemId: "", description: "", quantity: "1", unit: "EA" },
+            ])
+          }
+        >
+          <Plus size={16} />
+          Add item
+        </button>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="form-actions">
+          <button disabled={busy}>
+            {busy ? "Creating despatch…" : "Create despatch advice"}
           </button>
         </div>
-
-        <div className="form-actions">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setActiveTab("despatch-list")}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={isSubmitting}
-            className="bg-black text-white hover:bg-gray-800"
-          >
-            {isSubmitting ? "Creating..." : "Create Despatch Advice"}
-          </Button>
-        </div>
       </form>
-    </div>
-  )
+    </section>
+  );
 }

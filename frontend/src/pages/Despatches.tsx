@@ -1,260 +1,250 @@
-import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import { Eye, Download, Trash2 } from 'lucide-react'
-import "../css/DespatchesPage.css"
-import CreateDespatchForm from "../components/CreateDespatchForm"
-
-interface DespatchAdvice {
-  despatchId: string;
-  issueDate: string;
-  supplierName: string;
-  customerName: string;
-  status: string;
-}
-
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { Eye, Download, Trash2 } from "lucide-react";
+import {
+  request,
+  download,
+  displayDate,
+  errorMessage,
+  type Despatch,
+} from "../lib/api";
+import CreateDespatchForm from "../components/CreateDespatchForm";
 export default function Despatches() {
-  const [activeTab, setActiveTab] = useState("despatch-list")
-  const [despatches, setDespatches] = useState<DespatchAdvice[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [searchTerm, setSearchTerm] = useState("")
-
-  const sessionId = localStorage.getItem("token")
-  const navigate = useNavigate()
-
-  const fetchDespatches = async () => {
-    setIsLoading(true)
+  const [tab, setTab] = useState("list");
+  const [despatches, setDespatches] = useState<Despatch[]>([]);
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const [removed, setRemoved] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    setError("");
     try {
-      if (!sessionId) {
-        throw new Error("No session ID found. Please login again.");
-      }
-      
-      const res = await fetch(
-        "https://t6r6w5zni9.execute-api.us-east-1.amazonaws.com/v1/despatchAdvice",
-        {
-          headers: {
-            sessionid: sessionId,
-          },
-        }
-      )
-      const data = await res.json()
-      if (data.despatchAdvices?.despatchAdvicesIDs) {
-        // Transform the API response into our DespatchAdvice format
-        const formattedDespatches = data.despatchAdvices.despatchAdvicesIDs.map((idStr: string) => {
-          const id = idStr.replace("ID: ", "")
-          return {
-            despatchId: id,
-            issueDate: "", // Will be fetched in details
-            supplierName: "", // Will be fetched in details
-            customerName: "", // Will be fetched in details
-            status: "Pending" // Default status
-          }
-        })
-        setDespatches(formattedDespatches)
-      } else {
-        setDespatches([])
-      }
-    } catch (err) {
-      console.error("Error:", err)
-      setDespatches([])
+      setDespatches(
+        (await request<{ despatches: Despatch[] }>("/v2/despatches"))
+          .despatches,
+      );
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
     }
-    setIsLoading(false)
-  }
-
-  const handleDelete = async (despatchId: string) => {
-    if (!window.confirm("Are you sure you want to delete this despatch advice?")) return
-    
-    try {
-      if (!sessionId) {
-        throw new Error("No session ID found. Please login again.");
-      }
-      
-      const res = await fetch(
-        `https://t6r6w5zni9.execute-api.us-east-1.amazonaws.com/v1/despatchAdvice/${despatchId}`,
-        {
-          method: "DELETE",
-          headers: {
-            sessionid: sessionId,
-          },
-        }
-      )
-      
-      if (res.ok) {
-        fetchDespatches() // Refresh the list
-      } else {
-        console.error("Failed to delete despatch advice")
-      }
-    } catch (err) {
-      console.error("Error deleting despatch:", err)
-    }
-  }
-
+  };
   useEffect(() => {
-    fetchDespatches()
-  }, [])
-
-  const filteredDespatches = despatches.filter(despatch => 
-    despatch.despatchId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    despatch.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    despatch.supplierName.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
+    void load();
+  }, []);
+  const remove = async () => {
+    if (!pending) return;
+    setActionBusy(true);
+    try {
+      await request(`/v2/despatches/${pending}`, { method: "DELETE" });
+      setRemoved(pending);
+      setPending(null);
+      await load();
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+  const undo = async () => {
+    setActionBusy(true);
+    try {
+      await request(`/v2/despatches/${removed}/restore`, { method: "POST" });
+      setRemoved(null);
+      await load();
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+  const exportXML = async (id: string) => {
+    try {
+      await download(`/v2/despatches/${id}/xml`, `despatch-${id}.xml`);
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  };
+  const filtered = despatches.filter((item) =>
+    [item.orderId, item.customerName, item.supplierName, item.despatchId].some(
+      (value) => value.toLowerCase().includes(search.toLowerCase()),
+    ),
+  );
   return (
-    <div className="container">
-      <h1>Despatch Advice Hub</h1>
-      
-      <div className="tabs-container">
-        <div className="tabs-list">
-          <button
-            className="tab-trigger"
-            data-state={activeTab === "despatch-list" ? "active" : "inactive"}
-            onClick={() => setActiveTab("despatch-list")}
-          >
-            Despatch List
-          </button>
-          <button
-            className="tab-trigger"
-            data-state={activeTab === "create-despatch" ? "active" : "inactive"}
-            onClick={() => setActiveTab("create-despatch")}
-          >
-            Create Despatch
-          </button>
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>Despatch advice</h1>
+          <p>
+            Prepare delivery details and keep a record of the items leaving.
+          </p>
         </div>
-
-        {activeTab === "despatch-list" && (
-          <div className="tab-content">
-            <div className="space-y-6">
-              <div>
-                <h2>Filter Despatches</h2>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <input
-                      className="input"
-                      placeholder="Search by ID, customer or supplier"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button onClick={fetchDespatches} className="button button-primary">
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h2>Despatch Advices</h2>
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Despatch ID</th>
-                        <th>Issue Date</th>
-                        <th>Supplier</th>
-                        <th>Customer</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {isLoading ? (
-                        <tr>
-                          <td colSpan={6} style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem' }}>
-                              <div className="spinner"></div>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : filteredDespatches.length > 0 ? (
-                        filteredDespatches.map((despatch) => (
-                          <tr key={despatch.despatchId}>
-                            <td>{despatch.despatchId}</td>
-                            <td>{despatch.issueDate || "N/A"}</td>
-                            <td>{despatch.supplierName || "N/A"}</td>
-                            <td>{despatch.customerName || "N/A"}</td>
-                            <td>
-                              <span className={`status-badge ${despatch.status.toLowerCase()}`}>
-                                {despatch.status}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="flex gap-2">
-                                <button
-                                  className="button button-outline button-icon"
-                                  onClick={() => navigate(`/despatches/${despatch.despatchId}`)}
-                                  title="View Details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
-                                <button
-                                  className="button button-outline button-icon"
-                                  onClick={() => handleDownload(despatch.despatchId)}
-                                  title="Download XML"
-                                >
-                                  <Download className="h-4 w-4" />
-                                </button>
-                                <button
-                                  className="button button-outline button-icon button-danger"
-                                  onClick={() => handleDelete(despatch.despatchId)}
-                                  title="Delete"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} style={{ textAlign: 'center' }}>
-                            No despatch advices found. {searchTerm ? "Try adjusting your search" : "Create a new despatch advice"}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+      </div>
+      <div className="tabs" aria-label="Despatch sections">
+        <button aria-pressed={tab === "list"} onClick={() => setTab("list")}>
+          Your despatches
+        </button>
+        <button
+          aria-pressed={tab === "create"}
+          onClick={() => setTab("create")}
+        >
+          Create despatch
+        </button>
+      </div>
+      {tab === "create" ? (
+        <CreateDespatchForm />
+      ) : (
+        <section>
+          <div className="filter-form">
+            <label htmlFor="despatch-search">
+              Search despatches
+              <input
+                id="despatch-search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Order, customer or supplier"
+              />
+            </label>
+            <button
+              className="button-outline"
+              disabled={busy}
+              onClick={() => void load()}
+            >
+              Refresh
+            </button>
+          </div>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {removed && (
+            <div className="notice" role="status">
+              <span>Despatch advice removed.</span>
+              <button
+                className="button-outline"
+                disabled={actionBusy}
+                onClick={() => void undo()}
+              >
+                Undo
+              </button>
+            </div>
+          )}
+          {pending && (
+            <div className="notice" role="alert">
+              <p>
+                Remove this despatch advice from your list? You can undo this
+                action.
+              </p>
+              <div className="actions">
+                <button
+                  className="button-danger"
+                  disabled={actionBusy}
+                  onClick={() => void remove()}
+                >
+                  Confirm removal
+                </button>
+                <button
+                  className="button-outline"
+                  disabled={actionBusy}
+                  onClick={() => setPending(null)}
+                >
+                  Cancel
+                </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === "create-despatch" && (
-          <div className="tab-content">
-            <CreateDespatchForm 
-              setActiveTab={setActiveTab} 
-              sessionId={sessionId}
-              onSuccess={fetchDespatches}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-
-  function handleDownload(despatchId: string) {
-    // This would need to be implemented based on your API
-    // For now, we'll just show an alert
-    alert(`Downloading despatch ${despatchId} XML`)
-    
-    // Actual implementation might look like:
-    /*
-    fetch(`https://t6r6w5zni9.execute-api.us-east-1.amazonaws.com/v1/despatchAdvice/${despatchId}/xml`, {
-      headers: {
-        sessionid: sessionId,
-      },
-    })
-      .then((res) => res.text())
-      .then((xml) => {
-        const blob = new Blob([xml], { type: "application/xml" })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `despatch-${despatchId}.xml`
-        a.click()
-        URL.revokeObjectURL(url)
-      })
-      .catch((err) => console.error("Failed to download XML:", err))
-    */
-  }
-} 
+          )}
+          {busy ? (
+            <p role="status" className="loading">
+              Loading despatches…
+            </p>
+          ) : !error && filtered.length === 0 ? (
+            <div className="empty-state">
+              <h2>
+                {search
+                  ? "No matching despatches"
+                  : "Prepare your first despatch"}
+              </h2>
+              <p>
+                {search
+                  ? "Try another order, customer or supplier."
+                  : "Add the order reference, destination and items to create a despatch advice document."}
+              </p>
+              <button onClick={() => setTab("create")}>Create despatch</button>
+            </div>
+          ) : (
+            !error && (
+              <div
+                className="table-wrap"
+                role="region"
+                aria-label="Despatches"
+                tabIndex={0}
+              >
+                <table>
+                  <caption className="sr-only">
+                    Your despatch advice documents
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th>Order reference</th>
+                      <th>Issue date</th>
+                      <th>Customer</th>
+                      <th>Supplier</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((item) => (
+                      <tr key={item.despatchId}>
+                        <td>
+                          <Link to={`/despatches/${item.despatchId}`}>
+                            {item.orderId}
+                          </Link>
+                        </td>
+                        <td>{displayDate(item.issueDate)}</td>
+                        <td>{item.customerName}</td>
+                        <td>{item.supplierName}</td>
+                        <td>
+                          <span className="status-badge">{item.status}</span>
+                        </td>
+                        <td>
+                          <div className="actions">
+                            <Link
+                              className="icon-button"
+                              to={`/despatches/${item.despatchId}`}
+                              aria-label={`View despatch for ${item.orderId}`}
+                            >
+                              <Eye size={18} />
+                            </Link>
+                            <button
+                              className="icon-button"
+                              aria-label={`Download despatch for ${item.orderId}`}
+                              onClick={() => void exportXML(item.despatchId)}
+                            >
+                              <Download size={18} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              aria-label={`Remove despatch for ${item.orderId}`}
+                              onClick={() => setPending(item.despatchId)}
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </section>
+      )}
+    </>
+  );
+}

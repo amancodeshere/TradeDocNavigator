@@ -1,73 +1,62 @@
-import { useNavigate } from "react-router-dom"
-import { LogOut } from "lucide-react"
-import { Button } from "../components/ui/button"
-import { logout } from "../lib/api.ts"
-import "../css/Dashboard.css"
-
+import { Link } from "react-router-dom";
+import { ArrowUpRight, FileText, PackageCheck, Truck } from "lucide-react";
+import { useAuth } from "../lib/auth";
 export default function Dashboard() {
-  const navigate = useNavigate()
-
-  const handleLogout = () => {
-    const sessionId = localStorage.getItem("token")
-    if (sessionId) {
-      try {
-        const res = logout(sessionId)
-        console.log(res)
-        localStorage.removeItem("token")
-        navigate("/")
-      } catch (err) {
-        console.error(err)
-      }
-    }
-  }
-
+  const { user } = useAuth();
   return (
-    <div className="min-h-screen bg-white text-black">
-      <div className="dashboard-wrapper">
-        <header className="dashboard-header">
-          <h1 className="dashboard-title">Dashboard</h1>
-          <Button
-            variant="ghost"
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            <LogOut className="logout-icon" />
-            Logout
-          </Button>
-        </header>
-
-        <main className="dashboard-main">
-          <div className="dashboard-card">
-            <div className="dashboard-content">
-              <div className="dashboard-logo-section">
-                <img src="/logo2.png" alt="Trade Docs Navigator" className="dashboard-logo" />
-                <h2 className="dashboard-subtitle">Your Trade Hub</h2>
-              </div>
-
-              <div className="dashboard-grid">
-                <Button
-                  className="dashboard-button"
-                  onClick={() => navigate("/orders")}
-                >
-                  Tracking
-                </Button>
-                <Button
-                  className="dashboard-button"
-                  onClick={() => navigate("/invoices")}
-                >
-                  Invoices
-                </Button>
-                <Button
-                  className="dashboard-button"
-                  onClick={() => navigate("/despatches")}
-                >
-                  Despatches
-                </Button>
-              </div>
-            </div>
-          </div>
-        </main>
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>Your trade workspace</h1>
+          <p>Welcome, {user?.companyName}. Keep the next step moving.</p>
+        </div>
       </div>
-    </div>
-  )
+      <div className="workspace-links">
+        <Link to="/invoices">
+          <FileText />
+          <div>
+            <h2>Invoices</h2>
+            <p>
+              Create from order XML or item details. View, edit and download
+              your documents.
+            </p>
+          </div>
+          <ArrowUpRight />
+        </Link>
+        <Link to="/despatches">
+          <PackageCheck />
+          <div>
+            <h2>Despatch advice</h2>
+            <p>
+              Prepare item quantities and delivery details, then download UBL
+              XML.
+            </p>
+          </div>
+          <ArrowUpRight />
+        </Link>
+        <Link to="/orders">
+          <Truck />
+          <div>
+            <h2>Shipment tracking</h2>
+            <p>
+              Save tracking references and retrieve carrier updates when live
+              tracking is enabled.
+            </p>
+          </div>
+          <ArrowUpRight />
+        </Link>
+      </div>
+      <aside className="workspace-note">
+        <h2>Start with an invoice</h2>
+        <p>
+          Paste an existing UBL order or enter your buyer and line items. Your
+          documents are saved to this account and available when you sign in
+          again.
+        </p>
+        <Link className="text-link" to="/invoices">
+          Open invoice hub <ArrowUpRight size={16} />
+        </Link>
+      </aside>
+    </>
+  );
 }
