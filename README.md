@@ -44,11 +44,13 @@ Open http://localhost:3000. React routes survive reloads and direct links. The a
 
 The configured application is **robust-tranquility / production / TradeDocNavigator**. A separate PostgreSQL service named **Postgres** supplies its database.
 
-1. Deploy this repository from its root using the committed `Dockerfile` and `railway.json`. The multi-stage build compiles the frontend and installs the Java validator.
+1. Deploy this repository from its root using the committed `Dockerfile`. Deployment settings are managed in `.railway/railway.ts`. The multi-stage build compiles the frontend and installs the Java validator.
 2. Set application variable `DATABASE_URL` to `${{Postgres.DATABASE_URL}}` so it uses the database's private-network connection. Do not put a database password in source control.
 3. Set `NODE_ENV=production`. Set `PORT=8080` to match the existing Railway domain's target port, or keep the app port and domain target aligned if you change them.
 4. Startup runs migrations under a database advisory lock, then begins listening. Railway checks `/api/health`, which verifies a database query.
 5. The public application is https://tradedocnavigator.up.railway.app.
+
+Deployment settings use Railway Infrastructure as Code because `railway.json` is deprecated. To change infrastructure settings, use Node.js 22+ and run `npx @railway/cli config plan`, review the diff, then `npx @railway/cli config apply`. The named partial owns only TradeDocNavigator; database resources and existing service variables remain managed on Railway. Ordinary pushes to `main` still deploy the app after CI passes.
 
 The database needs a persistent Railway volume. Use Railway's PostgreSQL template, and enable database backups according to your retention needs. No public database endpoint is required by the application.
 

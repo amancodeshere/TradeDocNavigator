@@ -12,8 +12,9 @@
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "ci-test": "npm test",
     "lint": "eslint src scripts tests",
-    "check": "npm run lint && npm --prefix frontend run lint && npm --prefix frontend run build",
-    "test:e2e": "playwright test"
+    "check": "npm run lint && npm --prefix frontend run lint && npm --prefix frontend run build && npm run check:infra",
+    "test:e2e": "playwright test",
+    "check:infra": "node frontend/node_modules/typescript/bin/tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck .railway/railway.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -22,6 +23,7 @@
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "prettier": "^3.9.10",
+    "railway": "^3.13.1",
     "supertest": "^7.0.0"
   },
   "dependencies": {

@@ -23,4 +23,5 @@ database.db
 coverage/
 test-results/
 playwright-report/
-.railway/
+.railway/*
+!.railway/railway.ts
